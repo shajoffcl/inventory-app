@@ -1,0 +1,103 @@
+# "org" ensures this Service is used with the correct Serverless Framework Access Key.
+org: shajoffcl
+# "app" enables Serverless Framework Dashboard features and sharing them with other Services.
+app: lambda-dynamo
+# "service" is the name of this project. This will also be added to your AWS resource names.
+service: inventory-manager
+
+stages:
+  default:
+    params:
+      itemTableName: "inventory-items-table-${sls:stage}"
+
+package:
+  individually: true
+  include:
+    - node_modules/**
+    - handler.js
+    - routes/**
+    - controllers/**
+    - middlewares/**
+    - services/**
+    - validator/**
+    - dao/**
+    - utils/**
+    - configs/**
+    - public/**
+
+
+
+provider:
+  name: aws
+  runtime: nodejs20.x
+  # stage: ${opt:stage, 'dev'}
+  # memorySize: 256    # default for all functions
+  # timeout: 10        # default for all functions
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - dynamodb:Query
+            - dynamodb:Scan
+            - dynamodb:GetItem
+            - dynamodb:PutItem
+            - dynamodb:UpdateItem
+            - dynamodb:DeleteItem
+          Resource:
+            - Fn::GetAtt: [InventoryTable, Arn]
+            - !Sub "${InventoryTable.Arn}/index/*"
+  environment:
+    INVENTORY_ITEMS_TABLE: ${param:itemTableName}
+
+functions:
+  api:
+    handler: handler.handler
+    events:
+      - httpApi: "*"
+
+resources:
+
+  Resources:
+    InventoryTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        BillingMode: PAY_PER_REQUEST
+        TableName: ${param:itemTableName}
+        AttributeDefinitions:
+          - AttributeName: itemName
+            AttributeType: S
+          - AttributeName: expiry
+            AttributeType: S
+          - AttributeName: staticKey
+            AttributeType: S
+        KeySchema:
+          - AttributeName: itemName
+            KeyType: HASH
+          - AttributeName: expiry
+            KeyType: RANGE
+        GlobalSecondaryIndexes:
+          - IndexName: expiryIndex
+            KeySchema:
+              - AttributeName: staticKey
+                KeyType: HASH
+              - AttributeName: expiry
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+
+  Outputs:
+    HttpApiEndpoint:
+      Description: "HTTP API Gateway endpoint URL"
+      Value:
+        Fn::Join:
+          - ""
+          - - "https://"
+            - !Ref HttpApi
+            - ".execute-api."
+            - ${aws:region}
+            - ".amazonaws.com"
+    TableName:
+      Description: "DynamoDB Table name"
+      Value: ${param:itemTableName}
+

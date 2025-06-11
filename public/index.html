@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Inventory App</title>
+  <style>
+    body { font-family: Arial; padding: 2rem; }
+    form, table { margin-bottom: 2rem; }
+    input, select { padding: 0.5rem; margin: 0.2rem; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { padding: 0.5rem; border: 1px solid #ccc; }
+  </style>
+</head>
+<body>
+  <div id="loginSection">
+    <h2>Login</h2>
+    <form id="loginForm">
+      <input type="text" id="username" placeholder="Username" required />
+      <input type="password" id="password" placeholder="Password" required />
+      <button type="submit">Login</button>
+    </form>
+  </div>
+
+  <button id="logoutButton" type="button">Logout</button>
+
+  <h1 id = "appName">Inventory Manager</h1>
+
+
+  <form id="addItemForm">
+    <input type="text" id="itemName" placeholder="Item Name" required />
+    <input type="number" id="quantity" placeholder="Quantity" required />
+    <input type="text" id="category" placeholder="Category" required />
+    <input type="date" id="expiry" required />
+    <input type="number" id="purchasePrice" placeholder="Purchase Price" step="0.01" required />
+    <input type="number" id="mrp" placeholder="MRP" step="0.01" required />
+    <button type="submit">Add Item</button>
+  </form>
+
+  <input type="text" id="searchInput" placeholder="Search by item name..." />
+  <button id="searchButton" type="button">Search</button>
+  <button id="refreshButton" type="button">Refresh</button>
+
+  <h2 id = "listName">Items</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Item</th>
+        <th>Quantity</th>
+        <th>Category</th>
+        <th>Expiry</th>
+        <th>Purchase Price</th>
+        <th>MRP</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody id="itemList"></tbody>
+  </table>
+
+    <!-- New Total Purchase Price display -->
+  <div id = "totalPurchaseDiv">
+    <strong>Total Purchase Price: ₹<span id="totalPurchasePrice">0.00</span></strong>
+  </div>
+
+
+  <script>
+    const BASE_URL = "https://mnnj21qg9l.execute-api.us-east-1.amazonaws.com"
+    let currentSearch = '';
+
+    let token = localStorage.getItem('authToken') || '';
+    const loginForm = document.getElementById('loginForm');
+    const loginSection = document.getElementById('loginSection');
+    const inventoryApp = document.body; // You can use a separate wrapper div
+
+    async function authenticate(e) {
+      e.preventDefault();
+      const username = loginForm.username.value;
+      const password = loginForm.password.value;
+
+      const res = await fetch('/user/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userName: username, password })
+      });
+
+      if (res.ok) {
+        const result = await res.json();
+        token = result?.data?.token;
+        localStorage.setItem('authToken', token);
+        location.reload(); 
+        loadItems(currentSearch);
+      } else {
+        alert('Invalid credentials');
+      }
+    }
+
+    loginForm.addEventListener('submit', authenticate);
+
+    document.getElementById('logoutButton').addEventListener('click', () => {
+      localStorage.removeItem('authToken');
+      location.reload(); // Refresh page to show login form again
+    });
+
+
+    const form = document.getElementById('addItemForm');
+    const itemList = document.getElementById('itemList');
+
+    document.getElementById('searchButton').addEventListener('click', () => {
+      currentSearch = document.getElementById('searchInput').value;
+      loadItems(currentSearch);
+    });
+
+    document.getElementById('refreshButton').addEventListener('click', () => {
+      currentSearch = '';
+      document.getElementById('searchInput').value = '';
+      loadItems(currentSearch);
+    });
+
+      // Modify all fetch calls to include token
+    async function secureFetch(url, options = {}) {
+      console.log(token, 'token')
+      options.headers = {
+        ...(options.headers || {}),
+        'Authorization': 'Bearer ' + token,
+        'Content-Type': 'application/json'
+      };
+      return await fetch(url, options);
+    }
+
+    async function loadItems(search = '') {
+      
+    // const res = await fetch('/items?search=' + encodeURIComponent(search));
+    const res = await secureFetch('/items/list?itemName=' + encodeURIComponent(search));
+    if (res.status === 401) {
+      alert('Session expired. Please log in again.');
+      localStorage.removeItem('authToken');
+      // location.reload();
+      return;
+    }
+
+    const result = await res.json();
+
+    const {list:items, totalPurchase=0} = result?.data;
+    
+
+    itemList.innerHTML = items.map(item => {
+      const expiryDate = new Date(item.expiry);
+      const isoDate = expiryDate.toISOString().split('T')[0]; // yyyy-mm-dd
+
+      return `
+        <tr>
+          <td>${item.itemName}</td>
+          <td>
+            <input type="number" value="${item.quantity}" onchange="updateField('${item.itemName}', 'quantity', this.value)" />
+          </td>
+          <td>${item.category}</td>
+          <td>
+            <input type="date" value="${isoDate}" onchange="updateField('${item.itemName}', 'expiry', this.value)" />
+          </td>
+          <td>
+            <input type="number" value="${item.purchasePrice.toFixed(2)}" step="0.01" onchange="updateField('${item.itemName}', 'purchasePrice', this.value)" />
+          </td>
+          <td>
+            <input type="number" value="${item.mrp.toFixed(2)}" step="0.01" onchange="updateField('${item.itemName}', 'mrp', this.value)" />
+          </td>
+          <td><button onclick="deleteItem('${item.itemName}')">🗑</button></td>
+        </tr>
+      `;
+    }).join('');
+
+    document.getElementById('totalPurchasePrice').textContent = totalPurchase.toFixed(2);
+  }
+
+  async function updateField(name, field, value) {
+    let bodyValue;
+    if (field === 'quantity') {
+      bodyValue = parseInt(value);
+    } else if (field === 'purchasePrice' || field === 'mrp') {
+      bodyValue = parseFloat(value);
+    } else if (field === 'expiry') {
+      bodyValue = value; // ISO string from input[type=date]
+    }
+
+    console.log(name, 'name---')
+
+    const res = await secureFetch('/items/update/' + name, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ [field]: bodyValue })
+    });
+
+    if (res.status === 401) {
+      alert('You are not allowed to perform this action');
+    } else if (res.status === 409) {
+      alert('Item not available to update');
+    } else if (res.ok) {
+      alert('Item updated successfully')
+    } else {
+      alert('Failed to update item. Please try again.');
+    }
+
+    loadItems(currentSearch);
+  }
+
+    async function deleteItem(name) {
+      const confirmed = window.confirm(`Are you sure you want to delete "${name}"?`);
+      if (!confirmed) return;
+
+      const res = await secureFetch('/items/remove/' + name, { method: 'DELETE' });
+      if (res.status === 401) {
+        alert('You are not allowed to perform this action');
+      } else if (res.status === 409) {
+        alert('Item not available to delete');
+      } else if (res.ok) {
+        alert('Item deleted successfully')
+        loadItems(currentSearch);
+      } else {
+        alert('Failed to update item. Please try again.');
+      }
+    }
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const data = {
+        itemName: form.itemName.value,
+        quantity: parseInt(form.quantity.value),
+        category: form.category.value,
+        expiry: form.expiry.value,
+        purchasePrice: parseFloat(form.purchasePrice.value),
+        mrp: parseFloat(form.mrp.value)
+      };
+
+      const res = await secureFetch('/items/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      });
+
+      if (res.status === 409) {
+        alert('Item already exists! Please update the quantity instead.');
+      } else if (res.status === 401) {
+        alert('You are not allowed to perform this action');
+      } else if (res.ok) {
+        alert('Item added successfully')
+        loadItems(currentSearch);
+      } else {
+        alert('Failed to add item. Please try again.');
+      }
+
+      form.reset();
+    });
+
+      // Check for token and show login or app
+    if (token) {
+      loginSection.style.display = 'none';
+      document.getElementById('logoutButton').style.display = 'inline-block';
+      loadItems(currentSearch);
+    } else {
+      inventoryApp.querySelector('form#addItemForm').style.display = 'none';
+      document.getElementById('appName').style.display = 'none';
+      document.getElementById('listName').style.display = 'none';
+      document.getElementById('searchInput').style.display = 'none';
+      document.getElementById('searchButton').style.display = 'none';
+      document.getElementById('refreshButton').style.display = 'none';
+      document.querySelector('table').style.display = 'none';
+      document.getElementById('totalPurchaseDiv').style.display = 'none'
+      document.getElementById('logoutButton').style.display = 'none'
+    }
+
+    // loadItems(currentSearch);
+  </script>
+</body>
+</html>

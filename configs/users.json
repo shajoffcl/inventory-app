@@ -1,0 +1,10 @@
+[{
+     "userName": "admin_rw",
+     "password": "addy#123",
+     "actions": ["r", "w", "u", "d"]
+}, 
+{
+     "userName": "admin_r",
+     "password": "user#123",
+     "actions": ["r"]
+}]
