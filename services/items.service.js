@@ -27,7 +27,8 @@ module.exports = class ItemsService {
           let data = [];
 
           if (itemName) {
-               data = await ItemsDao.getTop5ItemsByName(itemName?.toUpperCase())
+               itemName = itemName?.trim()?.toUpperCase()
+               data = await ItemsDao.getTop5ItemsByName(itemName)
           } else {
                data = await ItemsDao.getTop5ItemsByExpiry();
           }

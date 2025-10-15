@@ -4,7 +4,8 @@ const {
   QueryCommand, 
   PutCommand, 
   DeleteCommand,
-  UpdateCommand
+  UpdateCommand,
+  paginateScan
 } = require('@aws-sdk/lib-dynamodb');
 
 const client = new DynamoDBClient();
@@ -33,25 +34,27 @@ const getTop5ItemsByExpiry = async () => {
      }
 };
 
-const getTop5ItemsByName = async (itemName) => {
-  try {
-    const params = {
-       TableName: TABLE_NAME,
-       KeyConditionExpression: 'itemName = :itemName',
-       ExpressionAttributeValues: {
-         ':itemName': itemName
-       },
-       ScanIndexForward: true, // ascending (earliest expiry first)
-       Limit: 5
-    };
+const getTop5ItemsByName = async (prefix) => {
+  const paginator = paginateScan({ client: ddbDocClient }, {
+    TableName: TABLE_NAME,
+    FilterExpression: 'begins_with(itemName, :prefix)',
+    ExpressionAttributeValues: {
+      ':prefix': prefix
+    }
+  });
 
-    const result = await ddbDocClient.send(new QueryCommand(params));
-    return result.Items;
-  } catch (err) {
-    console.error('DynamoDB query error:', err);
-    throw err;
+  const items = [];
+
+  for await (const page of paginator) {
+    if (page.Items) {
+      items.push(...page.Items);
+      if (items.length >= 5) break;
+    }
   }
+
+  return items.slice(0, 5);
 };
+
 
 const createItem = async (itemData) => {   
      const item = {
